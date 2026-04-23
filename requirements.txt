@@ -1,0 +1,6 @@
+streamlit
+nltk
+spacy==2.3.5
+pyresparser==1.0.6
+pandas
+pdfminer.six

@@ -4,21 +4,21 @@ import streamlit as st
 import nltk
 import spacy
 nltk.download('stopwords')
-spacy.load('en_core_web_sm')
+nlp = spacy.load('en_core_web_sm')
 
 import pandas as pd
-import base64, random
+import base64
+import random
+import io
 import time, datetime
-from pyresparser import ResumeParser
 from pdfminer3.layout import LAParams, LTTextBox
 from pdfminer3.pdfpage import PDFPage
 from pdfminer3.pdfinterp import PDFResourceManager
 from pdfminer3.pdfinterp import PDFPageInterpreter
 from pdfminer3.converter import TextConverter
-import io, random
+from pyresparser import ResumeParser
 from streamlit_tags import st_tags
 from PIL import Image
-import pymysql
 from Courses import ds_course, web_course, android_course, ios_course, uiux_course, resume_videos, interview_videos
 import yt_dlp
 import plotly.express as px
@@ -101,20 +101,7 @@ def course_recommender(course_list):
     return rec_course
 
 
-connection = pymysql.connect(host='localhost', user='root', password='')
-cursor = connection.cursor()
 
-
-def insert_data(name, email, res_score, timestamp, no_of_pages, reco_field, cand_level, skills, recommended_skills,
-                courses):
-    DB_table_name = 'user_data'
-    insert_sql = "insert into " + DB_table_name + """
-    values (0,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)"""
-    rec_values = (
-    name, email, str(res_score), timestamp, str(no_of_pages), reco_field, cand_level, skills, recommended_skills,
-    courses)
-    cursor.execute(insert_sql, rec_values)
-    connection.commit()
 
 
 st.set_page_config(
@@ -134,28 +121,8 @@ def run():
     img = img.resize((250, 250))
     st.image(img)
 
-    # Create the DB
-    db_sql = """CREATE DATABASE IF NOT EXISTS SRA;"""
-    cursor.execute(db_sql)
-    connection.select_db("sra")
-
-    # Create table
-    DB_table_name = 'user_data'
-    table_sql = "CREATE TABLE IF NOT EXISTS " + DB_table_name + """
-                    (ID INT NOT NULL AUTO_INCREMENT,
-                     Name varchar(100) NOT NULL,
-                     Email_ID VARCHAR(50) NOT NULL,
-                     resume_score VARCHAR(8) NOT NULL,
-                     Timestamp VARCHAR(50) NOT NULL,
-                     Page_no VARCHAR(5) NOT NULL,
-                     Predicted_Field VARCHAR(25) NOT NULL,
-                     User_level VARCHAR(30) NOT NULL,
-                     Actual_skills VARCHAR(300) NOT NULL,
-                     Recommended_skills VARCHAR(300) NOT NULL,
-                     Recommended_courses VARCHAR(600) NOT NULL,
-                     PRIMARY KEY (ID));
-                    """
-    cursor.execute(table_sql)
+    
+   
     if choice == 'Normal User':
         # st.markdown('''<h4 style='text-align: left; color: #d73b5c;'>* Upload your resume, and get smart recommendation based on it."</h4>''',
         #             unsafe_allow_html=True)
@@ -169,10 +136,9 @@ def run():
             show_pdf(save_image_path)
             resume_data = ResumeParser(save_image_path).get_extracted_data()
             if resume_data:
-                ## Get the whole resume data
-                resume_text = pdf_reader(save_image_path)
+                resume_text = pdf_reader(save_image_path).lower()
                 resume_score = 0
-                resume_text = resume_text.lower()
+                ## Get the whole resume data
 
                 sections = {
                     ('objective', 'career objective'): 10,
@@ -202,7 +168,7 @@ def run():
                     resume_score = 100
 
                 st.header("**Resume Analysis**")
-                st.success("Hello " + resume_data['name'])
+                st.success("Hello " + str(resume_data.get('name', 'User')))
                 st.subheader("**Your Basic info**")
                 try:
                     st.text('Name: ' + resume_data['name'])
@@ -212,7 +178,8 @@ def run():
                 except:
                     pass
                 cand_level = ''
-                if resume_data['no_of_pages'] == 1:
+                pages = resume_data.get('no_of_pages', 0)
+                if pages == 1:
                     cand_level = "Fresher"
                     st.markdown('''<h4 style='text-align: left; color: #d73b5c;'>You are looking Fresher.</h4>''',
                                 unsafe_allow_html=True)
@@ -229,7 +196,7 @@ def run():
                 ## Skill shows
                 keywords = st_tags(label='### Skills that you have',
                                    text='See our skills recommendation',
-                                   value=resume_data['skills'], key='1')
+                                   value=resume_data.get('skills', []) or [], key='1')
 
                 ##  recommendation
                 ds_keyword = ['tensorflow', 'keras', 'pytorch', 'machine learning', 'deep Learning', 'flask',
@@ -248,7 +215,9 @@ def run():
                 reco_field = ''
                 rec_course = ''
                 ## Courses recommendation
-                for i in resume_data['skills']:
+                  skills_list = resume_data.get('skills', []) or []
+                
+                  for i in skills_list:
                     ## Data science recommendation
                     if i.lower() in ds_keyword:
                         print(i.lower())
@@ -345,10 +314,6 @@ def run():
                 ### Resume writing recommendation
 
 
-                resume_text = pdf_reader(save_image_path)
-                resume_text = resume_text.lower()
-                resume_score = 0
-
                 sections = {
                     ('objective', 'career objective'): 10,
                     ('education', 'educational'): 15,
@@ -399,12 +364,13 @@ def run():
                 )
                 st.balloons()
 
-                insert_data(resume_data['name'], resume_data.get('email', 'noemail@example.com'), str(resume_score), timestamp,
-                            str(resume_data['no_of_pages']), reco_field, cand_level, str(resume_data['skills']),
-                            str(recommended_skills), str(rec_course))
+                
 
                 def save_to_csv(name, email, skills, pages, level, field):
                     file_exists = os.path.exists("resume_dataset.csv")
+                    
+                    if isinstance(skills, list):
+                        skills = "|".join(skills)
 
                     with open("resume_dataset.csv", "a", newline="", encoding="utf-8") as f:
                         writer = csv.writer(f)
@@ -413,29 +379,13 @@ def run():
                                 "name", "email", "skills",
                                 "no_of_pages", "experience_level", "job_field"
                             ])
-
-                        def save_to_csv(name, email, skills, pages, level, field):
-                            file_exists = os.path.exists("resume_dataset.csv")
+                            
+                        writer.writerow([
+                            name, email, skills, pages, level, field
+                        ])
 
                             # Convert list → safe string
-                            if isinstance(skills, list):
-                                skills = "|".join(skills)
-
-                            with open("resume_dataset.csv", "a", newline="", encoding="utf-8") as f:
-                                writer = csv.writer(f)
-                                if not file_exists:
-                                    writer.writerow([
-                                        "name", "email", "skills",
-                                        "no_of_pages", "experience_level", "job_field"
-                                    ])
-                                writer.writerow([
-                                    name,
-                                    email,
-                                    skills,
-                                    pages,
-                                    level,
-                                    field
-                                ])
+                            
 
                 save_to_csv(
                     resume_data['name'],
@@ -459,12 +409,47 @@ def run():
                 st.subheader("✅ **" + int_vid_title + "**")
                 st.video(interview_vid)
 
-                connection.commit()
+              
             else:
                 st.error('Something went wrong..')
     else:
         ## Admin Side
         st.success('Welcome to Admin Side')
+        ad_user = st.text_input("Username")
+        ad_password = st.text_input("Password", type='password')
+        if st.button('Login'):
+         if (
+            ad_user == st.secrets["admin_username"]
+            and ad_password == st.secrets["admin_password"]
+        ):
+             st.success("Admin Login Successful")
+             # Load dataset safely
+             if os.path.exists("resume_dataset.csv"):
+                df = pd.read_csv("resume_dataset.csv")
+             else:
+                df = pd.DataFrame()
+                st.warning("No dataset found yet")
+
+             # Show table
+             st.subheader("📊 User Data")
+             st.dataframe(df)
+
+             st.markdown(
+                get_table_download_link(df, 'User_Data.csv', 'Download Report'),
+                unsafe_allow_html=True
+                )
+        #  Pie Chart 1: Job Field Distribution
+        if not df.empty:
+            st.subheader("📈 Predicted Field Distribution")
+            fig = px.pie(df, names="job_field")
+            st.plotly_chart(fig)
+        
+            # Pie Chart 2: Experience Level Distribution
+            st.subheader("📈 Experience Level Distribution")
+            fig2 = px.pie(df, names="experience_level")
+            st.plotly_chart(fig2)
+        else:
+            st.error("Wrong ID & Password Provided")
         # st.sidebar.subheader('**ID / Password Required!**')
 
         ad_user = st.text_input("Username")
@@ -483,37 +468,18 @@ def run():
                 # ===================================
 
                 # Display Data
-                cursor.execute('''SELECT*FROM user_data''')
-                data = cursor.fetchall()
+     
+             
                 st.header("**User's👨‍💻 Data**")
-                df = pd.DataFrame(data, columns=['ID', 'Name', 'Email', 'Resume Score', 'Timestamp', 'Total Page',
-                                                 'Predicted Field', 'User Level', 'Actual Skills', 'Recommended Skills',
-                                                 'Recommended Course'])
+            
                 st.dataframe(df)
                 st.markdown(get_table_download_link(df, 'User_Data.csv', 'Download Report'), unsafe_allow_html=True)
                 ## Admin Side Data
-                query = 'select * from user_data;'
-                plot_data = pd.read_sql(query, connection)
+               
 
-                ## Pie chart for predicted field recommendations
-                labels = plot_data.Predicted_Field.unique()
-                print(labels)
-                values = plot_data.Predicted_Field.value_counts()
-                print(values)
-                st.subheader("📈 **Pie-Chart for Predicted Field Recommendations**")
-                fig = px.pie(df, values=values, names=labels, title='Predicted Field according to the Skills')
-                st.plotly_chart(fig)
-
-                ### Pie chart for User's👨‍💻 Experienced Level
-                labels = plot_data.User_level.unique()
-                values = plot_data.User_level.value_counts()
-                st.subheader("📈 ** Pie-Chart for User's👨‍💻 Experienced Level**")
-                fig = px.pie(df, values=values, names=labels, title="Pie-Chart📈 for User's👨‍💻 Experienced Level")
-                st.plotly_chart(fig)
+                
 
 
-            else:
-                st.error("Wrong ID & Password Provided")
-
+            
 
 run()
